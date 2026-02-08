@@ -22,39 +22,11 @@ module top_stopwatch_watch (
     wire o_btn_run_stop, o_btn_clear;
     wire [23:0] w_stopwatch_time, w_watch_time, w_time;
     wire o_run_stop_mode, o_clear_mode, o_sec_up_mode, o_min_up_mode,or_up_down,o_hour_up_mode,o_st_w_mode,o_mode_mode;
+    wire w_tg_up_down, w_tg_w_mode, w_tg_sel_mode, w_tg_hour_up;
 
-    reg r_uart_up_down;  // '0' 전송 시 반전
-    reg r_uart_st_w_mode;  // '1' 전송 시 반전
-    reg r_uart_mode_mode;  // '2' 전송 시 반전
-    reg r_uart_hour_up;  // '3' 전송 시 반전
 
-    // Toggle 로직: UART 틱이 발생할 때마다 상태를 0->1, 1->0으로 바꿈
-    always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            r_uart_up_down   <= 1'b0;
-            r_uart_st_w_mode <= 1'b0;
-            r_uart_mode_mode <= 1'b0;
-            r_uart_hour_up   <= 1'b0;
-        end else begin
-            if (w_dec_mode[4]) r_uart_up_down <= ~r_uart_up_down;  // '0'
-            if (w_dec_mode[5]) r_uart_st_w_mode <= ~r_uart_st_w_mode;  // '1'
-            if (w_dec_mode[6]) r_uart_mode_mode <= ~r_uart_mode_mode;  // '2'
-            if (w_dec_mode[7]) r_uart_hour_up <= ~r_uart_hour_up;  // '3'
-        end
-    end
-
-    reg r_btn_sec, r_btn_min;
     wire w_btn_sec_edge, w_btn_min_edge;
 
-    always @(posedge clk) begin
-        r_btn_sec <= o_btn_sec_up;
-        r_btn_min <= o_btn_min_up;
-    end
-
-    assign w_btn_sec_edge = o_btn_sec_up & ~r_btn_sec;
-    assign w_btn_min_edge = o_btn_min_up & ~r_btn_min;
-
-    wire w_final_min_up, w_final_sec_up, w_final_clear, w_final_run_stop;
 
     uart_top U_UART_TOP (
         .clk(clk),
@@ -73,6 +45,34 @@ module top_stopwatch_watch (
         .uart_done(w_uart_done),
         .uart_mode(w_dec_mode)
 
+    );
+
+    sw_toggle U_TG_UP_DOWN (
+        .clk  (clk),
+        .reset(reset),
+        .tick (w_dec_mode[4]),
+        .state(w_tg_up_down)
+    );
+
+    sw_toggle U_TG_ST_W_MODE (
+        .clk  (clk),
+        .reset(reset),
+        .tick (w_dec_mode[5]),
+        .state(w_tg_w_mode)
+    );
+
+    sw_toggle U_TG_SEL_MODE (
+        .clk  (clk),
+        .reset(reset),
+        .tick (w_dec_mode[6]),
+        .state(w_tg_sel_mode)
+    );
+
+    sw_toggle U_TG_HOUR_MODE (
+        .clk  (clk),
+        .reset(reset),
+        .tick (w_dec_mode[7]),
+        .state(w_tg_hour_up)
     );
 
     or_gate U_RUN_STOP_OR (
@@ -100,42 +100,28 @@ module top_stopwatch_watch (
 
     );
     or_gate U_UP_DOWN_OR (
-        .uart_mode  (r_uart_up_down),
+        .uart_mode  (w_tg_up_down),
         .orig_mode  (sw[0]),
-        .select_mode(or_up_down)
+        .select_mode(o_up_down_mode)
 
     );
     or_gate U_ST_W_OR (
-        .uart_mode  (r_uart_st_w_mode),
+        .uart_mode  (w_tg_w_mode),
         .orig_mode  (sw[1]),
         .select_mode(o_st_w_mode)
 
     );
     or_gate U_MODE_OR (
-        .uart_mode  (r_uart_mode_mode),
+        .uart_mode  (w_tg_sel_mode),
         .orig_mode  (sw[2]),
         .select_mode(o_mode_mode)
 
     );
     or_gate U_HOUR_UP_OR (
-        .uart_mode  (r_uart_hour_up),
+        .uart_mode  (w_tg_hour_up),
         .orig_mode  (sw[3]),
         .select_mode(o_hour_up_mode)
 
-    );
-
-    btn_debounce U_BD_SEC_UP (
-        .clk  (clk),
-        .reset(reset),
-        .i_btn(btn_low),
-        .o_btn(o_btn_sec_up)
-    );
-
-    btn_debounce U_BD_MIN_UP (
-        .clk  (clk),
-        .reset(reset),
-        .i_btn(btn_high),
-        .o_btn(o_btn_min_up)
     );
 
     btn_debounce U_BD_RUNSTOP (
@@ -151,11 +137,36 @@ module top_stopwatch_watch (
         .i_btn(btn_l),
         .o_btn(o_btn_clear)
     );
+    btn_debounce U_BD_SEC_UP (
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_low),
+        .o_btn(o_btn_sec_up)
+    );
+
+    btn_debounce U_BD_MIN_UP (
+        .clk  (clk),
+        .reset(reset),
+        .i_btn(btn_high),
+        .o_btn(o_btn_min_up)
+    );
+
+    edge_detector U_EDGE_SEC (
+        .clk(clk),
+        .i_sig(o_btn_sec_up),  // 입력 신호 (예: o_btn_sec_up)
+        .o_edge(w_btn_sec_edge)  // 추출된 1클럭 틱 신호
+    );
+
+    edge_detector U_EDGE_MIN (
+        .clk(clk),
+        .i_sig(o_btn_min_up),  // 입력 신호 (예: o_btn_sec_up)
+        .o_edge(w_btn_min_edge)  // 추출된 1클럭 틱 신호
+    );
 
     control_unit U_CONTROL_UNIT (
         .clk             (clk),
         .reset           (reset),
-        .i_up_down       (or_up_down),
+        .i_up_down       (o_up_down_mode),
         .i_run_stop      (o_run_stop_mode),
         .i_clear         (o_clear_mode),
         .i_sec_up        (o_sec_up_mode),    // edge 신호를 전달
